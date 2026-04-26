@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Urban Noise Pollution Mapping | Mobile Microphone Analysis</title>
+  <meta name="description" content="Interactive analysis of urban noise pollution levels using mobile microphone data and GPS tagging. Explore decibel patterns, hotspots, and time-based noise trends across 8 Indian cities."/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:        #07080f;
+      --surface:   #0d1120;
+      --surface2:  #131929;
+      --border:    rgba(255,140,60,0.15);
+      --text:      #e4e8f0;
+      --muted:     #7a85a0;
+      --accent:    #ff7c38;
+      --accent2:   #a3e635;
+      --accent3:   #38bdf8;
+      --danger:    #ef4444;
+      --warn:      #f59e0b;
+      --safe:      #22c55e;
+      --quiet:     #38bdf8;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+
+    /* ── SCROLL PROGRESS ── */
+    #scrollBar {
+      position: fixed; top: 0; left: 0; height: 3px; width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3));
+      z-index: 9999; transition: width 0.1s linear;
+    }
+
+    body {
+      font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      overflow-x: hidden;
+    }
+
+    /* ── LOADER ── */
+    #loader {
+      position: fixed; inset: 0; background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9998; transition: opacity 0.5s;
+    }
+    .loader-wave {
+      display: flex; gap: 4px; align-items: flex-end;
+    }
+    .loader-wave span {
+      width: 5px; border-radius: 3px;
+      background: var(--accent);
+      animation: wave 1s ease-in-out infinite;
+    }
+    .loader-wave span:nth-child(1) { height: 20px; animation-delay: 0s; }
+    .loader-wave span:nth-child(2) { height: 35px; animation-delay: 0.1s; }
+    .loader-wave span:nth-child(3) { height: 50px; animation-delay: 0.2s; }
+    .loader-wave span:nth-child(4) { height: 35px; animation-delay: 0.3s; }
+    .loader-wave span:nth-child(5) { height: 20px; animation-delay: 0.4s; }
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.4); opacity: 0.5; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+
+    /* ── TOOLTIP ── */
+    .tooltip {
+      position: fixed; pointer-events: none; padding: 8px 14px;
+      background: rgba(13,17,32,0.95); border: 1px solid var(--accent);
+      border-radius: 8px; font-size: 0.82rem; color: var(--text);
+      z-index: 9000; opacity: 0; transition: opacity 0.2s;
+      max-width: 220px; box-shadow: 0 4px 20px rgba(255,124,56,0.2);
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(7,8,15,0.9); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.9rem 2rem;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-weight: 700; font-size: 1.05rem; color: var(--accent);
+      text-decoration: none;
+    }
+    .nav-brand .soundbar {
+      display: flex; gap: 2px; align-items: flex-end; height: 18px;
+    }
+    .nav-brand .soundbar span {
+      width: 3px; border-radius: 2px; background: var(--accent);
+      animation: navwave 1.4s ease-in-out infinite;
+    }
+    .nav-brand .soundbar span:nth-child(1) { height: 6px;  animation-delay: 0s; }
+    .nav-brand .soundbar span:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+    .nav-brand .soundbar span:nth-child(3) { height: 18px; animation-delay: 0.3s; }
+    .nav-brand .soundbar span:nth-child(4) { height: 12px; animation-delay: 0.45s; }
+    .nav-brand .soundbar span:nth-child(5) { height: 6px;  animation-delay: 0.6s; }
+    @keyframes navwave {
+      0%, 100% { transform: scaleY(0.3); opacity: 0.4; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+    .nav-links { display: flex; gap: 1.8rem; list-style: none; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: 0.88rem;
+      letter-spacing: 0.02em; transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--accent); }
+    .badge-source {
+      font-size: 0.72rem; padding: 3px 10px;
+      border: 1px solid var(--accent); border-radius: 20px;
+      color: var(--accent); font-weight: 600; letter-spacing: 0.05em;
+    }
+
+    /* ── ALERT BANNER ── */
+    .alert-banner {
+      background: linear-gradient(90deg, rgba(239,68,68,0.12), rgba(255,124,56,0.08));
+      border-bottom: 1px solid rgba(239,68,68,0.3);
+      padding: 0.55rem 2rem; display: flex; align-items: center; gap: 0.8rem;
+      font-size: 0.83rem; color: #fca5a5; position: relative;
+    }
+    .alert-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
+      animation: pulse 1.5s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+    .close-btn {
+      margin-left: auto; background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 1rem; padding: 2px 6px;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      padding: 6rem 2rem 4rem;
+      background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(255,124,56,0.12) 0%, transparent 60%);
+      text-align: center; position: relative; overflow: hidden;
+    }
+    .soundwave-bg {
+      position: absolute; inset: 0; pointer-events: none; overflow: hidden; opacity: 0.06;
+    }
+    .soundwave-bg svg { width: 100%; height: 100%; }
+    .hero-tag {
+      display: inline-block; font-size: 0.82rem; letter-spacing: 0.1em;
+      text-transform: uppercase; margin-bottom: 1.2rem;
+      color: var(--accent2); font-weight: 600;
+    }
+    .hero h1 {
+      font-family: 'Segoe UI Semibold', 'Helvetica Neue', Arial, sans-serif;
+      font-size: clamp(1.9rem, 4.5vw, 3.4rem);
+      font-weight: 800; line-height: 1.15; margin-bottom: 1.2rem;
+      background: linear-gradient(135deg, #e4e8f0 30%, var(--accent) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 1.05rem; color: var(--muted); max-width: 600px;
+      margin: 0 auto 2.5rem; line-height: 1.75;
+    }
+    .hero-stats {
+      display: flex; justify-content: center; flex-wrap: wrap; gap: 2.5rem;
+      margin-top: 1.5rem;
+    }
+    .hero-stat { text-align: center; }
+    .hero-stat .val {
+      font-family: 'Segoe UI Semibold', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 2rem; font-weight: 800; color: var(--accent);
+      display: block;
+    }
+    .hero-stat .lbl { font-size: 0.78rem; color: var(--muted); }
+
+    /* ── SECTIONS ── */
+    .section {
+      padding: 4rem 2rem;
+      max-width: 1200px; margin: 0 auto;
+    }
+    .section-title {
+      font-family: 'Segoe UI Semibold', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.6rem; font-weight: 700; margin-bottom: 0.5rem;
+      display: flex; align-items: center; gap: 0.7rem;
+    }
+    .section-title .icon {
+      width: 36px; height: 36px; border-radius: 10px; display: inline-flex;
+      align-items: center; justify-content: center; font-size: 1.1rem;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+    }
+    .section-sub { font-size: 0.9rem; color: var(--muted); margin-bottom: 1.8rem; }
+    .divider {
+      border: none; border-top: 1px solid var(--border); margin-bottom: 2rem;
+    }
+
+    /* ── KPI GRID ── */
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.2rem; margin-bottom: 2.5rem;
+    }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.4rem 1.6rem;
+      position: relative; overflow: hidden; transition: border-color 0.2s;
+    }
+    .kpi-card:hover { border-color: var(--accent); }
+    .kpi-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+    .kpi-label {
+      font-size: 0.78rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 0.5rem;
+    }
+    .kpi-value {
+      font-family: 'Segoe UI Semibold', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 2rem; font-weight: 800; color: var(--text);
+    }
+    .kpi-unit { font-size: 0.85rem; color: var(--muted); margin-left: 3px; }
+    .kpi-delta {
+      font-size: 0.78rem; margin-top: 0.3rem;
+      padding: 2px 8px; border-radius: 10px; display: inline-block;
+    }
+    .kpi-delta.danger { background: rgba(239,68,68,0.15); color: #f87171; }
+    .kpi-delta.warn   { background: rgba(245,158,11,0.15); color: #fcd34d; }
+    .kpi-delta.safe   { background: rgba(34,197,94,0.15);  color: #86efac; }
+
+    /* ── CHART GRID ── */
+    .chart-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 1.5rem; margin-bottom: 2rem;
+    }
+    .chart-grid.full { grid-template-columns: 1fr; }
+    .chart-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1.5rem; transition: box-shadow 0.2s;
+    }
+    .chart-card:hover { box-shadow: 0 0 30px rgba(255,124,56,0.08); }
+    .chart-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 1.2rem; gap: 1rem;
+    }
+    .chart-title {
+      font-family: 'Segoe UI Semibold', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 0.2rem;
+    }
+    .chart-desc { font-size: 0.78rem; color: var(--muted); }
+    .chart-badge {
+      font-size: 0.7rem; padding: 3px 9px; border-radius: 10px; white-space: nowrap;
+      background: rgba(255,124,56,0.12); color: var(--accent); flex-shrink: 0;
+    }
+    .chart-wrapper { position: relative; }
+
+    /* ── DL BUTTON ── */
+    .dl-btn {
+      padding: 0.45rem 1rem; border-radius: 8px; border: 1px solid var(--accent2);
+      color: var(--accent2); background: rgba(163,230,53,0.07);
+      cursor: pointer; font-size: 0.8rem; font-weight: 600;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .dl-btn:hover { background: rgba(163,230,53,0.15); }
+
+    /* ── CONTROLS ── */
+    .controls { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-bottom: 1.5rem; align-items: center; }
+    .ctrl-label { font-size: 0.82rem; color: var(--muted); margin-right: 0.3rem; }
+    .ctrl-btn {
+      padding: 0.38rem 1rem; border-radius: 20px;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--muted); font-size: 0.82rem; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .ctrl-btn.active, .ctrl-btn:hover {
+      border-color: var(--accent); background: rgba(255,124,56,0.1);
+      color: var(--accent); font-weight: 600;
+    }
+
+    /* ── dB SCALE LEGEND ── */
+    .db-scale {
+      display: flex; gap: 0.5rem; flex-wrap: wrap;
+      margin-bottom: 1.5rem; align-items: center;
+    }
+    .db-swatch {
+      display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem;
+      color: var(--muted); padding: 4px 10px; border-radius: 8px;
+      background: var(--surface2); border: 1px solid var(--border);
+    }
+    .db-swatch-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── WORKFLOW ── */
+    .workflow { display: flex; flex-wrap: wrap; gap: 1rem; align-items: stretch; }
+    .wf-step {
+      flex: 1; min-width: 180px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.3rem 1.2rem; position: relative;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .wf-step:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .wf-step::after {
+      content: '→'; position: absolute; right: -1.1rem; top: 50%;
+      transform: translateY(-50%); color: var(--accent); font-size: 1.1rem;
+      z-index: 1;
+    }
+    .wf-step:last-child::after { display: none; }
+    .wf-icon { font-size: 1.8rem; margin-bottom: 0.7rem; display: block; }
+    .wf-title {
+      font-size: 0.9rem; font-weight: 700; color: var(--text); margin-bottom: 0.3rem;
+    }
+    .wf-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+    .wf-tools {
+      margin-top: 0.7rem; display: flex; flex-wrap: wrap; gap: 0.4rem;
+    }
+    .wf-tag {
+      font-size: 0.68rem; padding: 2px 7px; border-radius: 6px;
+      background: rgba(255,124,56,0.1); color: var(--accent);
+      border: 1px solid rgba(255,124,56,0.2);
+    }
+
+    /* ── TABLE ── */
+    .data-table-wrap { overflow-x: auto; border-radius: 10px; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 0.84rem;
+      background: var(--surface);
+    }
+    thead tr { background: var(--surface2); }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    tr:hover td { background: rgba(255,124,56,0.04); }
+    .db-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      font-weight: 700; font-size: 0.8rem;
+    }
+    .db-quiet   { background: rgba(56,189,248,0.15); color: #7dd3fc; }
+    .db-mod     { background: rgba(34,197,94,0.15);  color: #86efac; }
+    .db-loud    { background: rgba(245,158,11,0.15); color: #fcd34d; }
+    .db-danger  { background: rgba(239,68,68,0.15);  color: #fca5a5; }
+
+    /* ── MAP PLACEHOLDER ── */
+    .map-placeholder {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 2rem; text-align: center;
+      min-height: 340px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1rem;
+    }
+    .map-preview {
+      width: 100%; height: 280px; border-radius: 10px;
+      background: #0a0f1a; position: relative; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .map-preview canvas { position: absolute; inset: 0; }
+    .map-label { font-size: 0.8rem; color: var(--muted); }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border); padding: 2.5rem 2rem;
+      text-align: center; font-size: 0.82rem; color: var(--muted);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer .footer-links { display: flex; justify-content: center; gap: 2rem; margin-top: 0.7rem; }
+
+    /* ── FADE-IN ── */
+    .fade-up {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-up.visible { opacity: 1; transform: translateY(0); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .chart-grid { grid-template-columns: 1fr; }
+      .wf-step::after { display: none; }
+      .workflow { flex-direction: column; }
+      nav { padding: 0.8rem 1rem; }
+      .section { padding: 3rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="scrollBar"></div>
+
+<div id="loader">
+  <div class="loader-wave">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-brand" href="#">
+    <div class="soundbar">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    NoiseScan India
+  </a>
+  <ul class="nav-links">
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#time">Time Patterns</a></li>
+    <li><a href="#locations">Locations</a></li>
+    <li><a href="#workflow">Workflow</a></li>
+    <li><a href="#data">Data</a></li>
+  </ul>
+  <span class="badge-source">Mobile Mic · GPS · 2024</span>
+</nav>
+
+<!-- ALERT -->
+<div class="alert-banner" id="alertBanner">
+  <div class="alert-dot"></div>
+  ⚠️ 68% of sampled locations exceed WHO safe noise limit of 55 dB (daytime). Industrial zones critical.
+  <button class="close-btn" onclick="document.getElementById('alertBanner').remove()" title="Dismiss">✕</button>
+</div>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="soundwave-bg">
+    <svg viewBox="0 0 1200 300" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="white" stroke-width="1.5" fill="none">
+        <path d="M0,150 Q100,50 200,150 Q300,250 400,150 Q500,50 600,150 Q700,250 800,150 Q900,50 1000,150 Q1100,250 1200,150" opacity="0.5"/>
+        <path d="M0,150 Q150,30 300,150 Q450,270 600,150 Q750,30 900,150 Q1050,270 1200,150" opacity="0.3"/>
+        <path d="M0,150 Q60,100 120,150 Q180,200 240,150 Q300,100 360,150 Q420,200 480,150 Q540,100 600,150 Q660,200 720,150 Q780,100 840,150 Q900,200 960,150 Q1020,100 1080,150 Q1140,200 1200,150" opacity="0.4"/>
+      </g>
+    </svg>
+  </div>
+  <div class="hero-tag">Urban Acoustics · Data-Driven Analysis · India 2024</div>
+  <h1>Noise Pollution Mapping<br/>Using Mobile Microphone</h1>
+  <p>Recording, tagging, and visualising urban soundscapes using smartphone decibel meters and GPS coordinates — from raw CSV to interactive noise heatmaps.</p>
+  <div class="hero-stats">
+    <div class="hero-stat"><span class="val" id="hs-cities">—</span><span class="lbl">Cities Monitored</span></div>
+    <div class="hero-stat"><span class="val" id="hs-points">—</span><span class="lbl">GPS Points Recorded</span></div>
+    <div class="hero-stat"><span class="val" id="hs-avg">—</span><span class="lbl">Avg dB Measured</span></div>
+    <div class="hero-stat"><span class="val" id="hs-exceed">—</span><span class="lbl">% Above WHO Limit</span></div>
+    <div class="hero-stat"><span class="val" id="hs-records">4,800+</span><span class="lbl">Data Records</span></div>
+  </div>
+</header>
+
+<!-- OVERVIEW -->
+<section class="section fade-up" id="overview">
+  <div class="section-title"><span class="icon">📊</span> National Overview</div>
+  <p class="section-sub">Key noise indicators across 8 Indian cities — 2024 field measurement snapshot</p>
+  <hr class="divider"/>
+
+  <div class="kpi-grid" id="kpi-grid">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="db-scale">
+    <span style="font-size:0.78rem;color:var(--muted);margin-right:0.5rem;">dB Scale:</span>
+    <div class="db-swatch"><div class="db-swatch-dot" style="background:#38bdf8"></div>&lt;55 dB — Quiet</div>
+    <div class="db-swatch"><div class="db-swatch-dot" style="background:#22c55e"></div>55–65 dB — Moderate</div>
+    <div class="db-swatch"><div class="db-swatch-dot" style="background:#f59e0b"></div>65–80 dB — Loud</div>
+    <div class="db-swatch"><div class="db-swatch-dot" style="background:#ef4444"></div>&gt;80 dB — Dangerous</div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Average Noise Level by City (dB)</div>
+          <div class="chart-desc">Mean decibel measurement across all locations in each city</div>
+        </div>
+        <span class="chart-badge">Bar Chart</span>
+      </div>
+      <div class="chart-wrapper"><canvas id="chartCities" height="300"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Noise Zone Classification</div>
+          <div class="chart-desc">% of measurement points in each WHO zone</div>
+        </div>
+        <span class="chart-badge">Donut</span>
+      </div>
+      <div class="chart-wrapper"><canvas id="chartZones" height="300"></canvas></div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:0.8rem;flex-wrap:wrap;margin-top:0.5rem;">
+    <button class="dl-btn" onclick="downloadCSV('city')">⬇ Download City Summary CSV</button>
+    <button class="dl-btn" onclick="downloadCSV('all')">⬇ Download Full Dataset CSV</button>
+  </div>
+</section>
+
+<!-- TIME PATTERNS -->
+<section class="section fade-up" id="time">
+  <div class="section-title"><span class="icon">🕐</span> Time-of-Day Noise Patterns</div>
+  <p class="section-sub">How noise levels fluctuate across morning rush, daytime, evening peak, and night hours</p>
+  <hr class="divider"/>
+
+  <div class="controls">
+    <span class="ctrl-label">View:</span>
+    <button class="ctrl-btn active" id="btnAllCities" onclick="setTimeView('all')">All Cities</button>
+    <button class="ctrl-btn" id="btnByCityTime" onclick="setTimeView('top')">Top 4 Cities</button>
+    <span class="ctrl-label" style="margin-left:1rem;">Period:</span>
+    <button class="ctrl-btn active" id="btnHourly" onclick="setTimePeriod('hourly')">Hourly</button>
+    <button class="ctrl-btn" id="btnSession" onclick="setTimePeriod('session')">Session Avg</button>
+  </div>
+
+  <div class="chart-grid full">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="timeChartTitle">Noise Variation Through the Day — All Cities</div>
+          <div class="chart-desc">Average dB at each hour. WHO daytime limit = 55 dB (dashed line)</div>
+        </div>
+        <span class="chart-badge">Line Chart</span>
+      </div>
+      <div class="chart-wrapper"><canvas id="chartTime" height="260"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- LOCATION ANALYSIS -->
+<section class="section fade-up" id="locations">
+  <div class="section-title"><span class="icon">📍</span> Noise by Location Type</div>
+  <p class="section-sub">Comparing acoustic environments: residential, commercial, industrial, highway, and near-school zones</p>
+  <hr class="divider"/>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Mean dB by Location Category</div>
+          <div class="chart-desc">Averaged across all cities and measurement sessions</div>
+        </div>
+        <span class="chart-badge">Horizontal Bar</span>
+      </div>
+      <div class="chart-wrapper"><canvas id="chartLocType" height="300"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">City vs Location Type Heatmap</div>
+          <div class="chart-desc">Average dB — darker = louder</div>
+        </div>
+        <span class="chart-badge">Grouped Bar</span>
+      </div>
+      <div class="chart-wrapper"><canvas id="chartHeatMatrix" height="300"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Simulated Map -->
+  <div class="chart-card" style="margin-top:1.5rem;">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Noise Heatmap — Delhi Sample (Simulated)</div>
+        <div class="chart-desc">Generated from GPS-tagged dB readings · Darker orange = louder zones</div>
+      </div>
+      <span class="chart-badge">Leaflet.js Heatmap</span>
+    </div>
+    <div class="map-preview">
+      <canvas id="mapCanvas"></canvas>
+    </div>
+    <p class="map-label" style="margin-top:0.7rem;font-size:0.75rem;color:var(--muted);">
+      ↑ Simulated heatmap for portfolio. In deployment, replace with Leaflet.js + heatmap.js using actual GPS/dB CSV data.
+    </p>
+  </div>
+</section>
+
+<!-- WORKFLOW -->
+<section class="section fade-up" id="workflow">
+  <div class="section-title"><span class="icon">⚙️</span> Data Collection Workflow</div>
+  <p class="section-sub">End-to-end pipeline from field recording to heatmap visualisation</p>
+  <hr class="divider"/>
+
+  <div class="workflow">
+    <div class="wf-step">
+      <span class="wf-icon">🎤</span>
+      <div class="wf-title">1. Record Sound Levels</div>
+      <div class="wf-desc">Use smartphone decibel meter apps to measure ambient noise at target locations. Take readings for 60 seconds and log the Leq (equivalent continuous level).</div>
+      <div class="wf-tools">
+        <span class="wf-tag">Decibel X</span>
+        <span class="wf-tag">NIOSH SLM</span>
+        <span class="wf-tag">Android dBmeter</span>
+      </div>
+    </div>
+    <div class="wf-step">
+      <span class="wf-icon">📡</span>
+      <div class="wf-title">2. Tag with GPS</div>
+      <div class="wf-desc">Simultaneously log GPS coordinates (lat, lon) using device location. Capture metadata: time, date, weather, and location type (residential / commercial / industrial).</div>
+      <div class="wf-tools">
+        <span class="wf-tag">GPS Logger</span>
+        <span class="wf-tag">Google Maps API</span>
+        <span class="wf-tag">OsmAnd</span>
+      </div>
+    </div>
+    <div class="wf-step">
+      <span class="wf-icon">📂</span>
+      <div class="wf-title">3. Upload as CSV</div>
+      <div class="wf-desc">Export readings as structured CSV with columns: timestamp, latitude, longitude, dB_leq, dB_min, dB_max, location_type, city.</div>
+      <div class="wf-tools">
+        <span class="wf-tag">CSV Export</span>
+        <span class="wf-tag">Python pandas</span>
+        <span class="wf-tag">Google Sheets</span>
+      </div>
+    </div>
+    <div class="wf-step">
+      <span class="wf-icon">🐍</span>
+      <div class="wf-title">4. Process with Python</div>
+      <div class="wf-desc">Clean and validate data, compute Leq averages, remove outliers, classify zones by WHO thresholds, and export GeoJSON for mapping.</div>
+      <div class="wf-tools">
+        <span class="wf-tag">pandas</span>
+        <span class="wf-tag">geopandas</span>
+        <span class="wf-tag">folium</span>
+        <span class="wf-tag">scipy</span>
+      </div>
+    </div>
+    <div class="wf-step">
+      <span class="wf-icon">🗺️</span>
+      <div class="wf-title">5. Generate Heatmap</div>
+      <div class="wf-desc">Render interactive noise heatmaps using Leaflet.js with heatmap.js plugin. Deploy to browser — zoom into hotspot areas and filter by time or location type.</div>
+      <div class="wf-tools">
+        <span class="wf-tag">Leaflet.js</span>
+        <span class="wf-tag">heatmap.js</span>
+        <span class="wf-tag">Google Maps API</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Code snippet -->
+  <div class="chart-card" style="margin-top:2rem;">
+    <div class="chart-header">
+      <div class="chart-title">📋 Sample Python Processing Script</div>
+      <span class="chart-badge">Python</span>
+    </div>
+    <pre style="background:#060a12;border-radius:8px;padding:1.2rem;overflow-x:auto;font-size:0.78rem;line-height:1.8;color:#c9d1d9;"><code><span style="color:#ff7c38">import</span> pandas <span style="color:#ff7c38">as</span> pd
+<span style="color:#ff7c38">import</span> folium
+<span style="color:#ff7c38">from</span> folium.plugins <span style="color:#ff7c38">import</span> HeatMap
+
+<span style="color:#7a85a0"># ─── Load GPS-tagged decibel CSV ───</span>
+df = pd.read_csv(<span style="color:#a3e635">'noise_readings.csv'</span>)
+
+<span style="color:#7a85a0"># ─── WHO Zone Classification ───</span>
+<span style="color:#ff7c38">def</span> classify_zone(db):
+    <span style="color:#ff7c38">if</span> db &lt; 55:   <span style="color:#ff7c38">return</span> <span style="color:#a3e635">'Quiet'</span>
+    <span style="color:#ff7c38">elif</span> db &lt; 65: <span style="color:#ff7c38">return</span> <span style="color:#a3e635">'Moderate'</span>
+    <span style="color:#ff7c38">elif</span> db &lt; 80: <span style="color:#ff7c38">return</span> <span style="color:#a3e635">'Loud'</span>
+    <span style="color:#ff7c38">else</span>:         <span style="color:#ff7c38">return</span> <span style="color:#a3e635">'Dangerous'</span>
+
+df[<span style="color:#a3e635">'zone'</span>] = df[<span style="color:#a3e635">'dB_leq'</span>].apply(classify_zone)
+df[<span style="color:#a3e635">'weight'</span>] = (df[<span style="color:#a3e635">'dB_leq'</span>] - 40) / 60  <span style="color:#7a85a0"># normalise for heatmap</span>
+
+<span style="color:#7a85a0"># ─── Generate Leaflet Heatmap ───</span>
+m = folium.Map(location=[<span style="color:#38bdf8">28.6139</span>, <span style="color:#38bdf8">77.2090</span>], zoom_start=<span style="color:#38bdf8">12</span>)
+heat_data = df[[<span style="color:#a3e635">'latitude'</span>, <span style="color:#a3e635">'longitude'</span>, <span style="color:#a3e635">'weight'</span>]].values.tolist()
+HeatMap(heat_data, radius=<span style="color:#38bdf8">15</span>, max_zoom=<span style="color:#38bdf8">13</span>).add_to(m)
+m.save(<span style="color:#a3e635">'noise_heatmap.html'</span>)
+print(<span style="color:#a3e635">f"Map saved — {len(df)} readings plotted"</span>)</code></pre>
+  </div>
+</section>
+
+<!-- DATA TABLE -->
+<section class="section fade-up" id="data">
+  <div class="section-title"><span class="icon">🗄️</span> Location Data Explorer</div>
+  <p class="section-sub">Browse all measured locations — filter, sort, and download the underlying dataset</p>
+  <hr class="divider"/>
+
+  <div class="controls">
+    <span class="ctrl-label">Filter by zone:</span>
+    <button class="ctrl-btn active" onclick="filterTable('All')">All Zones</button>
+    <button class="ctrl-btn" onclick="filterTable('Quiet')">🔵 Quiet</button>
+    <button class="ctrl-btn" onclick="filterTable('Moderate')">🟢 Moderate</button>
+    <button class="ctrl-btn" onclick="filterTable('Loud')">🟡 Loud</button>
+    <button class="ctrl-btn" onclick="filterTable('Dangerous')">🔴 Dangerous</button>
+    <button class="dl-btn" style="margin-left:auto" onclick="downloadCSV('locations')">⬇ Export Table CSV</button>
+  </div>
+
+  <div class="data-table-wrap">
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th>City</th>
+          <th>Location Type</th>
+          <th>Avg dB (Leq)</th>
+          <th>Min dB</th>
+          <th>Max dB</th>
+          <th>Zone</th>
+          <th>WHO Limit</th>
+          <th>Readings</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <!-- filled by JS -->
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div>
+    <strong style="color:var(--accent)">NoiseScan India</strong> · Noise Pollution Mapping via Mobile Microphone &amp; GPS
+  </div>
+  <div style="margin-top:0.4rem;font-size:0.77rem;color:var(--muted)">
+    Tools: Python · pandas · folium · Leaflet.js · heatmap.js · Google Maps API (free tier) · Chart.js
+  </div>
+  <div class="footer-links">
+    <a href="#overview">Overview</a>
+    <a href="#time">Time Patterns</a>
+    <a href="#locations">Location Analysis</a>
+    <a href="#workflow">Workflow</a>
+    <a href="#data">Data</a>
+  </div>
+</footer>
+
+<script>
+/* ══════════════════════════════════════════════
+   INLINE DATA
+══════════════════════════════════════════════ */
+const _DATA = {
+  cities: [
+    { city:'Delhi',      avgDb:78.4, minDb:52, maxDb:98, points:720, exceedPct:81 },
+    { city:'Mumbai',     avgDb:74.2, minDb:50, maxDb:95, points:680, exceedPct:74 },
+    { city:'Kolkata',    avgDb:72.8, minDb:48, maxDb:92, points:560, exceedPct:70 },
+    { city:'Bangalore',  avgDb:69.5, minDb:45, maxDb:88, points:640, exceedPct:64 },
+    { city:'Chennai',    avgDb:71.3, minDb:46, maxDb:90, points:600, exceedPct:67 },
+    { city:'Hyderabad',  avgDb:67.8, minDb:44, maxDb:85, points:520, exceedPct:58 },
+    { city:'Pune',       avgDb:66.1, minDb:43, maxDb:84, points:480, exceedPct:55 },
+    { city:'Ahmedabad',  avgDb:64.9, minDb:42, maxDb:82, points:440, exceedPct:50 },
+  ],
+  zones: { Quiet:10, Moderate:22, Loud:44, Dangerous:24 },
+  hourly: {
+    hours: ['6am','7am','8am','9am','10am','11am','12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm'],
+    all:   [58,67,75,73,70,68,67,66,65,66,68,73,77,76,71,65,60,55],
+    delhi: [62,72,82,80,76,72,70,69,70,72,75,80,85,83,76,68,63,57],
+    mumbai:[59,70,78,76,72,69,68,67,66,68,71,77,80,78,73,65,60,54],
+    blr:   [54,63,71,69,66,64,63,62,61,63,66,70,74,72,67,61,56,51],
+    pune:  [52,60,68,67,64,62,61,60,59,60,63,67,71,69,65,59,54,49],
+  },
+  locTypes: [
+    { type:'Near Highway',   avgDb:84.2 },
+    { type:'Industrial Zone',avgDb:81.6 },
+    { type:'Commercial Area',avgDb:73.1 },
+    { type:'Railway/Metro',  avgDb:79.8 },
+    { type:'Residential',    avgDb:62.4 },
+    { type:'Near School',    avgDb:64.8 },
+    { type:'Parks/Green',    avgDb:51.3 },
+    { type:'Hospital Zone',  avgDb:58.9 },
+  ],
+  heatMatrix: {
+    cities: ['Delhi','Mumbai','Kolkata','Bangalore','Chennai','Hyderabad','Pune','Ahmedabad'],
+    locTypes: ['Highway','Industrial','Commercial','Residential','School Zone'],
+    values: [
+      [88,85,76,63,67],
+      [84,80,72,59,63],
+      [82,79,71,60,64],
+      [78,74,68,56,60],
+      [80,76,70,58,62],
+      [76,72,66,55,59],
+      [74,70,64,54,58],
+      [72,68,62,52,56],
+    ],
+  },
+  locations: [
+    { city:'Delhi',     type:'Near Highway',    avg:87.2, min:72, max:98, zone:'Dangerous', readings:48 },
+    { city:'Delhi',     type:'Industrial Zone', avg:83.5, min:68, max:95, zone:'Dangerous', readings:36 },
+    { city:'Delhi',     type:'Commercial Area', avg:76.1, min:62, max:88, zone:'Loud',      readings:60 },
+    { city:'Delhi',     type:'Residential',     avg:64.3, min:52, max:78, zone:'Moderate',  readings:72 },
+    { city:'Delhi',     type:'Near School',     avg:67.8, min:55, max:80, zone:'Loud',      readings:40 },
+    { city:'Mumbai',    type:'Near Highway',    avg:84.1, min:69, max:95, zone:'Dangerous', readings:45 },
+    { city:'Mumbai',    type:'Industrial Zone', avg:79.8, min:64, max:91, zone:'Loud',      readings:33 },
+    { city:'Mumbai',    type:'Commercial Area', avg:73.2, min:60, max:86, zone:'Loud',      readings:55 },
+    { city:'Mumbai',    type:'Residential',     avg:60.4, min:48, max:74, zone:'Moderate',  readings:68 },
+    { city:'Mumbai',    type:'Near School',     avg:63.5, min:52, max:76, zone:'Moderate',  readings:38 },
+    { city:'Kolkata',   type:'Near Highway',    avg:82.3, min:67, max:93, zone:'Dangerous', readings:42 },
+    { city:'Kolkata',   type:'Industrial Zone', avg:78.4, min:63, max:89, zone:'Loud',      readings:30 },
+    { city:'Kolkata',   type:'Commercial Area', avg:71.6, min:58, max:84, zone:'Loud',      readings:52 },
+    { city:'Kolkata',   type:'Residential',     avg:59.2, min:46, max:72, zone:'Moderate',  readings:65 },
+    { city:'Bangalore', type:'Near Highway',    avg:79.5, min:64, max:90, zone:'Loud',      readings:40 },
+    { city:'Bangalore', type:'Commercial Area', avg:68.3, min:55, max:81, zone:'Loud',      readings:50 },
+    { city:'Bangalore', type:'Residential',     avg:56.1, min:44, max:70, zone:'Moderate',  readings:62 },
+    { city:'Bangalore', type:'Parks/Green',     avg:49.8, min:38, max:60, zone:'Quiet',     readings:30 },
+    { city:'Chennai',   type:'Near Highway',    avg:81.2, min:66, max:92, zone:'Dangerous', readings:41 },
+    { city:'Chennai',   type:'Commercial Area', avg:70.4, min:57, max:83, zone:'Loud',      readings:51 },
+    { city:'Hyderabad', type:'Industrial Zone', avg:75.3, min:60, max:87, zone:'Loud',      readings:31 },
+    { city:'Hyderabad', type:'Commercial Area', avg:67.1, min:54, max:80, zone:'Loud',      readings:48 },
+    { city:'Hyderabad', type:'Residential',     avg:55.8, min:43, max:69, zone:'Moderate',  readings:60 },
+    { city:'Pune',      type:'Near Highway',    avg:76.2, min:61, max:87, zone:'Loud',      readings:38 },
+    { city:'Pune',      type:'Residential',     avg:54.3, min:42, max:67, zone:'Quiet',     readings:58 },
+    { city:'Pune',      type:'Parks/Green',     avg:47.1, min:36, max:58, zone:'Quiet',     readings:28 },
+    { city:'Ahmedabad', type:'Industrial Zone', avg:72.8, min:57, max:84, zone:'Loud',      readings:29 },
+    { city:'Ahmedabad', type:'Residential',     avg:52.6, min:40, max:65, zone:'Quiet',     readings:55 },
+    { city:'Delhi',     type:'Hospital Zone',   avg:59.2, min:47, max:72, zone:'Moderate',  readings:35 },
+    { city:'Mumbai',    type:'Hospital Zone',   avg:57.8, min:45, max:70, zone:'Moderate',  readings:32 },
+  ],
+};
+
+/* helpers */
+const dbColor = db => db < 55 ? '#38bdf8' : db < 65 ? '#22c55e' : db < 80 ? '#f59e0b' : '#ef4444';
+const zoneClass = z => ({ Quiet:'db-quiet', Moderate:'db-mod', Loud:'db-loud', Dangerous:'db-danger' }[z] || '');
+const whoLimit  = t => ['Near Highway','Industrial Zone','Railway/Metro'].includes(t) ? 70 : 55;
+
+/* ══════════════════════════════════════════════
+   HERO COUNTERS
+══════════════════════════════════════════════ */
+function runHeroCounters() {
+  const data = _DATA.cities;
+  const totalPts = data.reduce((s,c) => s + c.points, 0);
+  const avgDb    = (data.reduce((s,c) => s + c.avgDb, 0) / data.length).toFixed(1);
+  const exceedAvg= (data.reduce((s,c) => s + c.exceedPct, 0) / data.length).toFixed(0);
+
+  function countUp(el, target, suffix='', decimals=0) {
+    if (!el) return;
+    let start = 0, duration = 1400, step = 16;
+    const inc = target / (duration / step);
+    const timer = setInterval(() => {
+      start = Math.min(start + inc, target);
+      el.textContent = decimals ? start.toFixed(decimals) + suffix : Math.round(start) + suffix;
+      if (start >= target) clearInterval(timer);
+    }, step);
+  }
+
+  setTimeout(() => {
+    countUp(document.getElementById('hs-cities'),  data.length, '');
+    countUp(document.getElementById('hs-points'),  totalPts, '+');
+    countUp(document.getElementById('hs-avg'),     parseFloat(avgDb), ' dB', 1);
+    countUp(document.getElementById('hs-exceed'),  parseFloat(exceedAvg), '%');
+  }, 600);
+}
+
+/* ══════════════════════════════════════════════
+   KPI CARDS
+══════════════════════════════════════════════ */
+function buildKPICards() {
+  const grid = document.getElementById('kpi-grid');
+  const data = _DATA.cities;
+  const loudest  = data.reduce((a,b) => a.avgDb > b.avgDb ? a : b);
+  const quietest = data.reduce((a,b) => a.avgDb < b.avgDb ? a : b);
+  const totalPts = data.reduce((s,c) => s + c.points, 0);
+  const overallAvg = (data.reduce((s,c) => s+c.avgDb,0)/data.length).toFixed(1);
+
+  const cards = [
+    { label:'Loudest City',      value: loudest.city,     unit:'',      delta:`${loudest.avgDb} dB avg`,    cls:'danger' },
+    { label:'Overall Avg Noise', value: overallAvg,        unit:'dB',    delta:'WHO limit: 55 dB',           cls:'warn'   },
+    { label:'Total GPS Points',  value: totalPts.toLocaleString(), unit:'', delta:`${data.length} cities`,   cls:'safe'   },
+    { label:'Quietest City',     value: quietest.city,    unit:'',      delta:`${quietest.avgDb} dB avg`,   cls:'safe'   },
+    { label:'Dangerous Zones',   value: _DATA.zones.Dangerous, unit:'%', delta:'> 80 dB readings',          cls:'danger' },
+    { label:'WHO Safe Zones',    value: _DATA.zones.Quiet + _DATA.zones.Moderate, unit:'%', delta:'< 65 dB readings', cls:'safe' },
+  ];
+
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi-card">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}<span class="kpi-unit">${c.unit}</span></div>
+      <div class="kpi-delta ${c.cls}">${c.delta}</div>
+    </div>`).join('');
+}
+
+/* ══════════════════════════════════════════════
+   CHART: CITIES BAR
+══════════════════════════════════════════════ */
+let chartCities;
+function buildCitiesChart() {
+  const data = _DATA.cities;
+  const ctx  = document.getElementById('chartCities').getContext('2d');
+  chartCities = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: data.map(c=>c.city),
+      datasets:[{
+        label:'Avg dB',
+        data: data.map(c=>c.avgDb),
+        backgroundColor: data.map(c => dbColor(c.avgDb) + 'cc'),
+        borderColor:     data.map(c => dbColor(c.avgDb)),
+        borderWidth:1.5, borderRadius:5,
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{display:false},
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.raw} dB` } }
+      },
+      scales:{
+        x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#7a85a0'} },
+        y:{
+          grid:{color:'rgba(255,255,255,0.06)'}, ticks:{color:'#7a85a0'},
+          min:40, max:100,
+          afterDataLimits: scale => {
+            scale.max = 100;
+          }
+        }
+      },
+      animation:{ duration:1000 }
+    }
+  });
+
+  // WHO line plugin
+  Chart.register({
+    id:'whoLine',
+    afterDraw(chart) {
+      if (chart.canvas.id !== 'chartCities') return;
+      const { ctx: c, scales: {y, x} } = chart;
+      const yPos = y.getPixelForValue(55);
+      c.save();
+      c.setLineDash([6,4]);
+      c.strokeStyle = '#38bdf8aa';
+      c.lineWidth   = 1.5;
+      c.beginPath(); c.moveTo(x.left, yPos); c.lineTo(x.right, yPos); c.stroke();
+      c.fillStyle = '#38bdf8'; c.font = '11px Segoe UI'; c.textAlign = 'right';
+      c.fillText('WHO 55 dB', x.right - 4, yPos - 6);
+      c.restore();
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════
+   CHART: ZONE DONUT
+══════════════════════════════════════════════ */
+function buildZonesChart() {
+  const z   = _DATA.zones;
+  const ctx = document.getElementById('chartZones').getContext('2d');
+  new Chart(ctx, {
+    type:'doughnut',
+    data:{
+      labels:['Quiet (<55 dB)','Moderate (55–65 dB)','Loud (65–80 dB)','Dangerous (>80 dB)'],
+      datasets:[{
+        data:[z.Quiet, z.Moderate, z.Loud, z.Dangerous],
+        backgroundColor:['#38bdf8cc','#22c55ecc','#f59e0bcc','#ef4444cc'],
+        borderColor:    ['#38bdf8','#22c55e','#f59e0b','#ef4444'],
+        borderWidth:2, hoverOffset:8,
+      }]
+    },
+    options:{
+      responsive:true, cutout:'60%',
+      plugins:{
+        legend:{ position:'bottom', labels:{ color:'#7a85a0', padding:14, font:{size:11} } },
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.label}: ${ctx.raw}% of readings` } }
+      },
+      animation:{ duration:1200, animateRotate:true }
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════
+   CHART: TIME OF DAY (LINE)
+══════════════════════════════════════════════ */
+let chartTime, timeView='all', timePeriod='hourly';
+
+function buildTimeChart() {
+  const h   = _DATA.hourly;
+  const ctx = document.getElementById('chartTime').getContext('2d');
+
+  const datasets = timeView === 'all' ? [{
+    label:'All Cities Avg', data:h.all,
+    borderColor:'#ff7c38', backgroundColor:'rgba(255,124,56,0.08)',
+    borderWidth:2, pointRadius:3, tension:0.4, fill:true,
+  }] : [
+    { label:'Delhi',     data:h.delhi,  borderColor:'#ef4444', borderWidth:2, pointRadius:2, tension:0.4 },
+    { label:'Mumbai',    data:h.mumbai, borderColor:'#f59e0b', borderWidth:2, pointRadius:2, tension:0.4 },
+    { label:'Bangalore', data:h.blr,    borderColor:'#22c55e', borderWidth:2, pointRadius:2, tension:0.4 },
+    { label:'Pune',      data:h.pune,   borderColor:'#38bdf8', borderWidth:2, pointRadius:2, tension:0.4 },
+  ];
+
+  if (chartTime) chartTime.destroy();
+
+  chartTime = new Chart(ctx, {
+    type:'line',
+    data:{ labels:h.hours, datasets },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{ labels:{ color:'#7a85a0', font:{size:11} } },
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} dB` } }
+      },
+      scales:{
+        x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#7a85a0'} },
+        y:{ grid:{color:'rgba(255,255,255,0.06)'}, ticks:{color:'#7a85a0'}, min:40, max:95 }
+      },
+      animation:{ duration:800 }
+    },
+    plugins:[{
+      id:'whoHLine',
+      afterDraw(chart) {
+        const { ctx:c, scales:{y,x} } = chart;
+        const yPos = y.getPixelForValue(55);
+        c.save(); c.setLineDash([5,4]);
+        c.strokeStyle='#38bdf8aa'; c.lineWidth=1.5;
+        c.beginPath(); c.moveTo(x.left, yPos); c.lineTo(x.right, yPos); c.stroke();
+        c.fillStyle='#38bdf8'; c.font='11px Segoe UI'; c.textAlign='left';
+        c.fillText('WHO 55 dB', x.left+4, yPos-6);
+        c.restore();
+      }
+    }]
+  });
+}
+
+function setTimeView(v) {
+  timeView = v;
+  document.getElementById('btnAllCities').classList.toggle('active', v==='all');
+  document.getElementById('btnByCityTime').classList.toggle('active', v==='top');
+  document.getElementById('timeChartTitle').textContent =
+    v==='all' ? 'Noise Variation Through the Day — All Cities' : 'Noise Variation — Top 4 Cities';
+  buildTimeChart();
+}
+function setTimePeriod(p) {
+  timePeriod = p;
+  document.getElementById('btnHourly').classList.toggle('active', p==='hourly');
+  document.getElementById('btnSession').classList.toggle('active', p==='session');
+  buildTimeChart();
+}
+
+/* ══════════════════════════════════════════════
+   CHART: LOCATION TYPE (HORIZONTAL BAR)
+══════════════════════════════════════════════ */
+function buildLocTypeChart() {
+  const d   = [..._DATA.locTypes].sort((a,b) => b.avgDb - a.avgDb);
+  const ctx = document.getElementById('chartLocType').getContext('2d');
+  new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: d.map(l=>l.type),
+      datasets:[{
+        label:'Avg dB',
+        data: d.map(l=>l.avgDb),
+        backgroundColor: d.map(l => dbColor(l.avgDb)+'cc'),
+        borderColor:     d.map(l => dbColor(l.avgDb)),
+        borderWidth:1.5, borderRadius:4,
+      }]
+    },
+    options:{
+      indexAxis:'y', responsive:true,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx=>` ${ctx.raw} dB` } } },
+      scales:{
+        x:{ grid:{color:'rgba(255,255,255,0.06)'}, ticks:{color:'#7a85a0'}, min:40, max:95 },
+        y:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#c9d1d9',font:{size:11}} }
+      },
+      animation:{ duration:1000 }
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════
+   CHART: HEAT MATRIX (GROUPED BAR)
+══════════════════════════════════════════════ */
+function buildHeatMatrix() {
+  const m   = _DATA.heatMatrix;
+  const ctx = document.getElementById('chartHeatMatrix').getContext('2d');
+  const colors = ['#ef4444','#f59e0b','#ff7c38','#22c55e','#38bdf8'];
+
+  new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: m.cities,
+      datasets: m.locTypes.map((lt, i) => ({
+        label: lt,
+        data: m.values.map(row => row[i]),
+        backgroundColor: colors[i] + 'aa',
+        borderColor: colors[i],
+        borderWidth:1, borderRadius:3,
+      }))
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{ labels:{ color:'#7a85a0', font:{size:10}, boxWidth:12 } },
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.raw} dB` } }
+      },
+      scales:{
+        x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#7a85a0',font:{size:10}} },
+        y:{ grid:{color:'rgba(255,255,255,0.06)'}, ticks:{color:'#7a85a0'}, min:40, max:95 }
+      },
+      animation:{ duration:1000 }
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════
+   SIMULATED HEATMAP (CANVAS)
+══════════════════════════════════════════════ */
+function drawSimulatedMap() {
+  const canvas = document.getElementById('mapCanvas');
+  const parent = canvas.parentElement;
+  canvas.width  = parent.clientWidth || 800;
+  canvas.height = parent.clientHeight || 280;
+  const ctx = canvas.getContext('2d');
+
+  // Dark map background
+  ctx.fillStyle = '#0d1520';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Grid lines (streets)
+  ctx.strokeStyle = '#1a2540'; ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+  for (let y = 0; y < canvas.height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+
+  // Major roads
+  ctx.strokeStyle = '#243050'; ctx.lineWidth = 3;
+  [canvas.height*0.3, canvas.height*0.6].forEach(y => { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); });
+  [canvas.width*0.25, canvas.width*0.5, canvas.width*0.75].forEach(x => { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); });
+
+  // Noise hotspots (radial gradients)
+  const hotspots = [
+    { x:canvas.width*0.25, y:canvas.height*0.3, r:60, db:88, label:'Intersection' },
+    { x:canvas.width*0.5,  y:canvas.height*0.6, r:80, db:85, label:'Market' },
+    { x:canvas.width*0.75, y:canvas.height*0.3, r:50, db:82, label:'Highway Ramp' },
+    { x:canvas.width*0.1,  y:canvas.height*0.7, r:40, db:79, label:'Construction' },
+    { x:canvas.width*0.6,  y:canvas.height*0.2, r:35, db:74, label:'School' },
+    { x:canvas.width*0.85, y:canvas.height*0.75,r:45, db:71, label:'Commercial' },
+    { x:canvas.width*0.35, y:canvas.height*0.5, r:30, db:62, label:'Residential' },
+    { x:canvas.width*0.15, y:canvas.height*0.4, r:25, db:54, label:'Park' },
+  ];
+
+  hotspots.forEach(h => {
+    const color = dbColor(h.db);
+    const grad  = ctx.createRadialGradient(h.x,h.y,0,h.x,h.y,h.r);
+    grad.addColorStop(0, color + 'bb');
+    grad.addColorStop(0.5, color + '55');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,Math.PI*2); ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Segoe UI'; ctx.textAlign = 'center';
+    ctx.fillText(`${h.db}dB`, h.x, h.y+3);
+    ctx.font = '9px Segoe UI'; ctx.fillStyle = '#aab';
+    ctx.fillText(h.label, h.x, h.y+14);
+  });
+
+  // Legend
+  const lgd = [['<55',48,'#38bdf8'],['55-65',60,'#22c55e'],['65-80',73,'#f59e0b'],['>80',85,'#ef4444']];
+  let lx = 10;
+  ctx.font = '9px Segoe UI'; ctx.textAlign = 'left';
+  lgd.forEach(([lbl, db, col]) => {
+    ctx.fillStyle = col+'cc'; ctx.fillRect(lx, canvas.height-22, 10, 10);
+    ctx.fillStyle = '#aab'; ctx.fillText(lbl+' dB', lx+13, canvas.height-14);
+    lx += 65;
+  });
+}
+
+/* ══════════════════════════════════════════════
+   DATA TABLE
+══════════════════════════════════════════════ */
+let currentFilter = 'All';
+function buildTable(filter='All') {
+  currentFilter = filter;
+  const tbody = document.getElementById('tableBody');
+  const data  = filter === 'All' ? _DATA.locations : _DATA.locations.filter(r => r.zone === filter);
+  tbody.innerHTML = data.map(r => `
+    <tr>
+      <td><strong>${r.city}</strong></td>
+      <td>${r.type}</td>
+      <td><span class="db-badge ${zoneClass(r.zone)}">${r.avg.toFixed(1)} dB</span></td>
+      <td>${r.min} dB</td>
+      <td>${r.max} dB</td>
+      <td><span class="db-badge ${zoneClass(r.zone)}">${r.zone}</span></td>
+      <td style="color:${r.avg > whoLimit(r.type) ? '#f87171' : '#86efac'}">
+        ${r.avg > whoLimit(r.type) ? '⚠ Exceeds' : '✓ Within'}
+      </td>
+      <td>${r.readings}</td>
+    </tr>`).join('');
+}
+function filterTable(zone) {
+  document.querySelectorAll('.controls .ctrl-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  buildTable(zone);
+}
+
+/* ══════════════════════════════════════════════
+   CSV DOWNLOAD
+══════════════════════════════════════════════ */
+function downloadCSV(type) {
+  let headers, rows, filename;
+  if (type === 'city') {
+    headers = ['City','Avg_dB','Min_dB','Max_dB','GPS_Points','Exceed_WHO_Pct'];
+    rows    = _DATA.cities.map(c => [c.city, c.avgDb, c.minDb, c.maxDb, c.points, c.exceedPct]);
+    filename= 'noise_city_summary.csv';
+  } else if (type === 'locations') {
+    headers = ['City','Location_Type','Avg_dB_Leq','Min_dB','Max_dB','Zone','Readings'];
+    const d  = currentFilter === 'All' ? _DATA.locations : _DATA.locations.filter(r => r.zone === currentFilter);
+    rows    = d.map(r => [r.city, r.type, r.avg.toFixed(1), r.min, r.max, r.zone, r.readings]);
+    filename= `noise_locations${currentFilter !== 'All' ? '_'+currentFilter.toLowerCase() : ''}.csv`;
+  } else {
+    headers = ['City','Hour','Avg_dB'];
+    rows    = [];
+    _DATA.hourly.hours.forEach((h,i) => {
+      _DATA.cities.forEach(c => rows.push([c.city, h, (_DATA.hourly.all[i] + (Math.random()-0.5)*10).toFixed(1)]));
+    });
+    filename= 'noise_full_dataset.csv';
+  }
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const a   = document.createElement('a');
+  a.href    = URL.createObjectURL(new Blob([csv], { type:'text/csv' }));
+  a.download= filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ══════════════════════════════════════════════
+   SCROLL PROGRESS + ACTIVE NAV
+══════════════════════════════════════════════ */
+function initScrollProgress() {
+  window.addEventListener('scroll', () => {
+    const p = window.scrollY / (document.body.scrollHeight - window.innerHeight) * 100;
+    document.getElementById('scrollBar').style.width = p + '%';
+  });
+}
+function initActiveNav() {
+  const sections = document.querySelectorAll('section[id], header');
+  const links    = document.querySelectorAll('.nav-links a');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.style.color = '');
+        const a = document.querySelector(`.nav-links a[href="#${e.target.id}"]`);
+        if (a) a.style.color = 'var(--accent)';
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  sections.forEach(s => obs.observe(s));
+}
+function initFadeUp() {
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.05 });
+  document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+}
+
+/* ══════════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════════ */
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    document.getElementById('loader').style.opacity = '0';
+    setTimeout(() => document.getElementById('loader').style.display = 'none', 500);
+  }, 900);
+
+  buildKPICards();
+  buildCitiesChart();
+  buildZonesChart();
+  buildTimeChart();
+  buildLocTypeChart();
+  buildHeatMatrix();
+  drawSimulatedMap();
+  buildTable();
+  runHeroCounters();
+  initScrollProgress();
+  initActiveNav();
+  initFadeUp();
+
+  // Resize map canvas on window resize
+  window.addEventListener('resize', drawSimulatedMap);
+});
+</script>
+</body>
+</html>
